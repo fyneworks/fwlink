@@ -14,3 +14,7 @@ docs/api/static
 **/.DS_Store
 db/*
 !db/.gitkeep
+fwx/config/.env.production
+fwx/config/.env.development
+fwx/config/.env.testing
+fwx/config/.env.local

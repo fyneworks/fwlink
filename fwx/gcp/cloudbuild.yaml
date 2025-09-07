@@ -1,0 +1,73 @@
+# Cloud Build configuration for fwlink
+# Builds and deploys to Cloud Run with Cloud SQL and Redis
+
+substitutions:
+  _APP_NAME: fwlink
+  _ENVIRONMENT: prod
+  _REGION: europe-west4
+  _SERVICE_NAME: fwlink-prod
+  _IMAGE_TAG: ${SHORT_SHA}
+
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'fwx/docker/Dockerfile.production'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}:${_IMAGE_TAG}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}:latest'
+      - '.'
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}:${_IMAGE_TAG}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '3000'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--concurrency'
+      - '80'
+      - '--timeout'
+      - '300'
+      - '--add-cloudsql-instances'
+      - '$PROJECT_ID:${_REGION}:${_APP_NAME}-db-${_ENVIRONMENT}'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,DB_CLIENT=pg,DB_HOST=/cloudsql/$PROJECT_ID:${_REGION}:${_APP_NAME}-db-${_ENVIRONMENT},DB_PORT=5432,DB_NAME=${_APP_NAME},DB_USER=fwlink-user,DB_SSL=false,REDIS_ENABLED=true,REDIS_PORT=6379,TRUST_PROXY=true,DEFAULT_DOMAIN=fwl.ink,SITE_NAME=fwLink,MAIL_ENABLED=true,MAIL_PORT=587,MAIL_SECURE=true,MAIL_USER=api,MAIL_FROM=fwLink <noreply@fwl.ink>,CONTACT_EMAIL=support@fyneworks.com,REPORT_EMAIL=support@fyneworks.com'
+      - '--set-secrets'
+      - 'DB_PASSWORD=fwlink-db-password:latest,JWT_SECRET=fwlink-jwt-secret:latest,MAIL_PASSWORD=fwlink-mailgun-api-key:latest,MAIL_HOST=fwlink-mailgun-host:latest'
+
+# Store images in Artifact Registry
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}:${_IMAGE_TAG}'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_MEDIUM
