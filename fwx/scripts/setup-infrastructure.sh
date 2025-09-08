@@ -194,6 +194,57 @@ else
     log_with_time "✅ Redis instance created in ${DURATION} seconds"
 fi
 
+# Setup VPC connectivity for Redis access
+log_with_time "🌐 Setting up VPC connectivity for Redis access..."
+
+# Enable Serverless VPC Access API
+log_with_time "   Enabling Serverless VPC Access API..."
+if gcloud services list --enabled --filter="name:vpcaccess.googleapis.com" --project=${PROJECT_ID} | grep -q vpcaccess; then
+    log_with_time "✅ Serverless VPC Access API already enabled"
+else
+    gcloud services enable vpcaccess.googleapis.com --project=${PROJECT_ID}
+    log_with_time "✅ Serverless VPC Access API enabled"
+fi
+
+# Create dedicated subnet for VPC connector (required /28 netmask)
+VPC_SUBNET_NAME="${APP_NAME}-vpc-connector-subnet"
+if gcloud compute networks subnets describe ${VPC_SUBNET_NAME} --region=${REGION} --project=${PROJECT_ID} >/dev/null 2>&1; then
+    log_with_time "✅ VPC connector subnet already exists"
+else
+    log_with_time "   Creating VPC connector subnet..."
+    gcloud compute networks subnets create ${VPC_SUBNET_NAME} \
+        --network=default \
+        --range=10.8.0.0/28 \
+        --region=${REGION} \
+        --project=${PROJECT_ID}
+    log_with_time "✅ VPC connector subnet created"
+fi
+
+# Create VPC connector for Cloud Run to access Redis
+VPC_CONNECTOR_NAME="${APP_NAME}-redis-connector"
+if gcloud compute networks vpc-access connectors describe ${VPC_CONNECTOR_NAME} --region=${REGION} --project=${PROJECT_ID} >/dev/null 2>&1; then
+    CONNECTOR_STATE=$(gcloud compute networks vpc-access connectors describe ${VPC_CONNECTOR_NAME} --region=${REGION} --project=${PROJECT_ID} --format="value(state)" 2>/dev/null)
+    if [ "$CONNECTOR_STATE" = "READY" ]; then
+        log_with_time "✅ VPC connector already exists and is ready"
+    else
+        log_with_time "⚠️  VPC connector exists but is in state: ${CONNECTOR_STATE}"
+        log_with_time "   This may take a few minutes to become ready"
+    fi
+else
+    log_with_time "   Creating VPC connector (this may take 2-3 minutes)..."
+    START_TIME=$(date +%s)
+    gcloud compute networks vpc-access connectors create ${VPC_CONNECTOR_NAME} \
+        --region=${REGION} \
+        --subnet=${VPC_SUBNET_NAME} \
+        --subnet-project=${PROJECT_ID} \
+        --min-instances=2 \
+        --max-instances=3 \
+        --project=${PROJECT_ID}
+    END_TIME=$(date +%s)
+    DURATION=$((END_TIME - START_TIME))
+    log_with_time "✅ VPC connector created in ${DURATION} seconds"
+fi
+
 # Setup Mailgun for email service
 log_with_time "📧 Checking Mailgun email service setup..."
 
@@ -213,30 +264,38 @@ else
     echo "1. Log into your existing Mailgun account at: https://app.mailgun.com/"
     echo "2. Go to 'Sending' > 'Domains' and add domain: fwl.ink"
     echo "3. Configure DNS records for fwl.ink as shown in Mailgun dashboard"
-    echo "4. Go to 'Settings' > 'API Keys' and copy your Private API key"
-    echo "5. Note your Mailgun region (US or EU)"
+    echo "4. Go to 'Domain Settings' > 'SMTP credentials' and add a new user:"
+    echo "   - Login: postmaster@fwl.ink"
+    echo "   - Generate a password (save both username and password)"
+    echo "5. Note your Mailgun region (US or EU) for SMTP host"
     echo ""
-    read -p "Press Enter after you've completed Mailgun domain setup and have your API key ready..."
+    read -p "Press Enter after you've completed Mailgun domain setup and created SMTP credentials..."
     echo ""
 
-    # Get Mailgun API key with better input handling
-    echo "Enter your Mailgun Private API key (starts with 'key-'):"
+    # Get Mailgun SMTP password
+    echo "Enter your Mailgun SMTP password (from step 4 above):"
     echo "Note: Input will be hidden for security"
-    read -s MAILGUN_API_KEY
+    read -s MAILGUN_SMTP_PASSWORD
     echo ""
     
-    # Validate API key format
-    if [[ ! "$MAILGUN_API_KEY" =~ ^key-[a-f0-9]{32}$ ]] && [ -n "$MAILGUN_API_KEY" ]; then
-        echo "⚠️  Warning: API key format doesn't match expected pattern (key-xxxxx)"
-        echo "Proceeding anyway... Please verify the key is correct."
-    fi
-    
-    if [ -z "$MAILGUN_API_KEY" ]; then
-        echo "❌ Mailgun API key cannot be empty"
+    # Validate SMTP password format (basic check)
+    if [ -z "$MAILGUN_SMTP_PASSWORD" ]; then
+        echo "❌ SMTP password cannot be empty"
         exit 1
     fi
     
-    echo "API key received (${#MAILGUN_API_KEY} characters)"
+    if [ ${#MAILGUN_SMTP_PASSWORD} -lt 8 ]; then
+        echo "⚠️  Warning: SMTP password seems too short (less than 8 characters)"
+        echo ""
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_with_time "❌ Setup cancelled by user"
+            exit 1
+        fi
+    fi
+    
+    echo "SMTP password received (${#MAILGUN_SMTP_PASSWORD} characters)"
 
     # Get Mailgun region
     echo ""
@@ -266,9 +325,9 @@ else
     log_with_time "   Storing Mailgun configuration in Secret Manager..."
     
     if [ "$MAILGUN_KEY_EXISTS" = "false" ]; then
-        echo -n "${MAILGUN_API_KEY}" | gcloud secrets create fwlink-mailgun-api-key \
+        echo -n "${MAILGUN_SMTP_PASSWORD}" | gcloud secrets create fwlink-mailgun-api-key \
             --data-file=- --project=${PROJECT_ID}
-        log_with_time "✅ Mailgun API key stored"
+        log_with_time "✅ Mailgun SMTP password stored"
     fi
     
     if [ "$MAILGUN_HOST_EXISTS" = "false" ]; then
@@ -285,11 +344,14 @@ echo "- Cloud SQL Instance: ${DB_INSTANCE_NAME}"
 echo "- Database: ${APP_NAME}"
 echo "- Database User: fwlink-user"
 echo "- Redis Instance: ${REDIS_INSTANCE_NAME}"
+echo "- VPC Connector: ${VPC_CONNECTOR_NAME} (for Redis access)"
+echo "- VPC Subnet: ${VPC_SUBNET_NAME} (10.8.0.0/28)"
 echo "- Mailgun Email Service: fwl.ink domain"
 echo "- Artifact Registry: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${APP_NAME}"
 echo ""
 echo "🔍 Get connection details:"
 echo "gcloud sql instances describe ${DB_INSTANCE_NAME} --project=${PROJECT_ID}"
 echo "gcloud redis instances describe ${REDIS_INSTANCE_NAME} --region=${REGION} --project=${PROJECT_ID}"
+echo "gcloud compute networks vpc-access connectors describe ${VPC_CONNECTOR_NAME} --region=${REGION} --project=${PROJECT_ID}"
 echo ""
 log_with_time "🚀 Ready for deployment! Run: ./fwx/scripts/deploy.sh"

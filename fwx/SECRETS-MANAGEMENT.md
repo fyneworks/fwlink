@@ -2,6 +2,13 @@
 
 **Important: fwlink production deployment uses Google Cloud Secret Manager, NOT .env files.**
 
+## 📧 Email Configuration Note
+
+**fwlink uses SMTP for sending emails, NOT Mailgun's API.** This means:
+- ✅ **Need**: SMTP credentials (username/password) from Mailgun
+- ❌ **Don't need**: Mailgun API key for email sending
+- 📍 **Where**: Go to Mailgun → Domain Settings → SMTP credentials
+
 ## 🔐 Production Secrets (Google Cloud Secret Manager)
 
 All production configuration is managed via Google Cloud services:
@@ -14,7 +21,7 @@ These secrets are created during infrastructure setup:
 |-------------|---------|------------|
 | `fwlink-jwt-secret` | JWT signing key | Infrastructure setup (auto-generated) |
 | `fwlink-db-password` | Database password | Infrastructure setup (you provide) |
-| `fwlink-mailgun-api-key` | Mailgun API key | Infrastructure setup (you provide) |
+| `fwlink-mailgun-api-key` | Mailgun SMTP password | Infrastructure setup (you provide) |
 | `fwlink-mailgun-host` | Mailgun SMTP host | Infrastructure setup (auto-selected) |
 
 ### **Environment Variables Set Automatically**
@@ -44,8 +51,8 @@ REDIS_PORT=6379
 # Email Configuration
 MAIL_ENABLED=true
 MAIL_PORT=587
-MAIL_SECURE=true
-MAIL_USER=api
+MAIL_SECURE=false
+MAIL_USER=postmaster@fwl.ink
 MAIL_FROM="fwLink <noreply@fwl.ink>"
 CONTACT_EMAIL=support@fyneworks.com
 ```
@@ -72,8 +79,8 @@ echo "new-secure-password" | gcloud secrets versions add fwlink-db-password --da
 # Update JWT secret  
 echo "new-jwt-secret-32-chars-minimum" | gcloud secrets versions add fwlink-jwt-secret --data-file=-
 
-# Update Mailgun API key
-echo "key-your-new-mailgun-api-key" | gcloud secrets versions add fwlink-mailgun-api-key --data-file=-
+# Update Mailgun SMTP password
+echo "your-new-mailgun-smtp-password" | gcloud secrets versions add fwlink-mailgun-api-key --data-file=-
 
 # Update Mailgun region (US or EU)
 echo "smtp.mailgun.org" | gcloud secrets versions add fwlink-mailgun-host --data-file=-          # US

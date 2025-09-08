@@ -20,6 +20,7 @@
 - [Docker](#docker)
 - [API](#api)
 - [Configuration](#configuration)
+- [Architecture & Deployment](#architecture--deployment)
 - [Themes and customizations](#themes-and-customizations)
 - [Browser extensions](#browser-extensions)
 - [Videos](#videos)
@@ -112,7 +113,7 @@ You can use files for each of the variables by appending `_FILE` to the name of 
 | `DB_POOL_MIN` | Minimum number of database connection pools. Only if you use Postgres or MySQL. | `0` | `2` |
 | `DB_POOL_MAX` | Maximum number of database connection pools. Only if you use Postgres or MySQL. | `10` | `5` |
 | `REDIS_ENABLED` | Whether to use Redis for cache | `false` | `true` |
-| `REDIS_HOST` | Redis connection host | `127.0.0.1` | `your-redis-host.com` |
+| `REDIS_HOST` | Redis connection host. For Google Cloud Redis, use the internal IP address and ensure VPC connectivity is configured. | `127.0.0.1` | `10.x.x.x` (Cloud Redis IP) |
 | `REDIS_PORT` | Redis port | `6379` | `6379` |
 | `REDIS_PASSWORD` | Redis password | - | `mypassword` |
 | `REDIS_DB` | Redis database number, between 0 and 15. | `0` | `1` |
@@ -129,6 +130,24 @@ You can use files for each of the variables by appending `_FILE` to the name of 
 | `MAIL_SECURE` | Whether use SSL for the email server connection | `false` | `true` | 
 | `REPORT_EMAIL` | The email address that will receive submitted reports | - | `example@yoursite.com` | 
 | `CONTACT_EMAIL` | The support email address to show on the app | - | `example@yoursite.com` | 
+
+## Architecture & Deployment
+
+### Architecture Overview
+For detailed system architecture, infrastructure diagrams, and Google Cloud Platform setup:
+
+📋 **[View Architecture Documentation](ARCHITECTURE.md)** - Complete system overview with Mermaid diagrams
+
+### Custom Domain Setup
+For setting up custom domains with load balancer and static IP:
+
+🌐 **[Custom Domains Setup Guide](CUSTOM-DOMAINS-SETUP.md)** - Infrastructure setup for unlimited custom domains
+
+### Key Features:
+- **Global Load Balancer**: Routes any custom domain to your instance
+- **Static IP**: `34.128.151.185` for user DNS configuration  
+- **Zero Configuration**: Users just point DNS, no Google Cloud setup required
+- **Serverless Scale**: Cloud Run auto-scales from 0 to handle any traffic
 
 ## Themes and customizations
 

@@ -2,6 +2,10 @@
 
 This guide walks you through the complete initial setup of your fwlink URL shortener on Google Cloud Platform.
 
+📋 **Related Documentation**:
+- [Architecture Overview](../ARCHITECTURE.md) - Complete system architecture with diagrams
+- [Custom Domains Setup](../CUSTOM-DOMAINS-SETUP.md) - Load balancer setup for unlimited custom domains
+
 ## 🔧 Prerequisites Check
 
 **Before starting, run the prerequisite checker to avoid setup failures:**
@@ -61,11 +65,13 @@ chmod +x fwx/scripts/*.sh
 **What this creates:**
 - ✅ **Cloud SQL PostgreSQL** instance (`fwlink-db-prod`)
 - ✅ **Redis/Memorystore** instance (`fwlink-redis-prod`) 
+- ✅ **VPC Connector** for Redis connectivity (`fwlink-redis-connector`)
+- ✅ **VPC Subnet** for connector (`fwlink-vpc-connector-subnet`)
 - ✅ **Artifact Registry** repository for Docker images
-- ✅ **Secret Manager** secrets for JWT, database password, and Mailgun API key
+- ✅ **Secret Manager** secrets for JWT, database password, and Mailgun SMTP credentials
 - ✅ **Database** and **user** in PostgreSQL
-- ✅ **Mailgun email** configuration for fwl.ink domain
-- ✅ **APIs enabled**: Cloud Run, SQL, Redis, Build, Registry
+- ✅ **Mailgun SMTP** configuration for fwl.ink domain
+- ✅ **APIs enabled**: Cloud Run, SQL, Redis, Build, Registry, VPC Access
 
 **Expected output:**
 ```
@@ -81,10 +87,14 @@ Enter database password for fwlink user: [you'll be prompted]
 🗄️  Creating Cloud SQL PostgreSQL instance...
 👤 Creating database and user...
 ⚡ Creating Redis instance...
+🌐 Setting up VPC connectivity for Redis access...
+   Enabling Serverless VPC Access API...
+   Creating VPC connector subnet...
+   Creating VPC connector (this may take 2-3 minutes)...
 ✅ Infrastructure setup complete!
 ```
 
-**Time estimate:** 5-10 minutes (Cloud SQL creation takes the longest)
+**Time estimate:** 8-15 minutes (Cloud SQL and VPC connector creation take the longest)
 
 ### Step 2: Verify Infrastructure
 
@@ -97,29 +107,14 @@ gcloud sql instances list --filter="name:fwlink-db-prod"
 # Check Redis instance  
 gcloud redis instances list --region=europe-west4 --filter="name:fwlink-redis-prod"
 
+# Check VPC connector
+gcloud compute networks vpc-access connectors list --region=europe-west4 --filter="name:fwlink-redis-connector"
+
 # Check secrets
 gcloud secrets list --filter="name:fwlink"
 ```
 
-### Step 3: Get Redis IP Address
-
-You need the Redis IP for the deployment:
-
-```bash
-# Get Redis IP (save this for later)
-./fwx/scripts/get-redis-ip.sh
-```
-
-**Expected output:**
-```
-🔍 Getting Redis IP address...
-Redis IP: 10.158.123.45
-Use this IP in your REDIS_HOST environment variable
-```
-
-**📝 Important:** Note down this IP address - you'll need it.
-
-### Step 4: Deploy the Application
+### Step 3: Deploy the Application
 
 Now deploy your fwlink application:
 
@@ -131,11 +126,12 @@ Now deploy your fwlink application:
 **What this does:**
 1. ✅ **Builds** Docker image using multi-stage build
 2. ✅ **Pushes** image to Artifact Registry
-3. ✅ **Deploys** to Cloud Run with:
+3. ✅ **Gets** Redis IP automatically
+4. ✅ **Deploys** to Cloud Run with:
    - PostgreSQL connection via Cloud SQL proxy
+   - Redis connection via VPC connector
    - Secrets injection for JWT and DB password
    - Environment variables for production
-4. ✅ **Updates** Redis IP in Cloud Run service
 5. ✅ **Runs** database migrations automatically
 6. ✅ **Starts** the application
 
@@ -147,10 +143,10 @@ Environment: prod
 Region: europe-west4
 Service: fwlink-prod
 ----------------------------------------
-🔍 Getting Redis IP address...
-✅ Redis IP: 10.158.123.45
 🔨 Starting Cloud Build...
-⚡ Updating Redis configuration...
+   Building Docker image...
+   Getting Redis IP: 10.158.123.45
+   Deploying to Cloud Run with VPC connectivity...
 ✅ Deployment complete!
 
 🌐 Service URL: https://fwlink-prod-xyz-ew.a.run.app
@@ -158,7 +154,7 @@ Service: fwlink-prod
 
 **Time estimate:** 3-5 minutes
 
-### Step 5: Test Your Deployment
+### Step 4: Test Your Deployment
 
 Test that everything is working:
 
@@ -171,7 +167,7 @@ echo "Your fwlink URL: $SERVICE_URL"
 curl "$SERVICE_URL/api/health" || curl "$SERVICE_URL"
 ```
 
-### Step 6: Configure Your Domain
+### Step 5: Configure Your Domain
 
 Your app is configured to use `fwl.ink` as the default domain. Set up DNS:
 
@@ -289,8 +285,14 @@ gcloud sql connect fwlink-db-prod --user=fwlink-user
 
 **Redis connection issues:**
 ```bash
-# Verify Redis IP is correct in Cloud Run
-gcloud run services describe fwlink-prod --region=europe-west4 --format="value(spec.template.spec.template.spec.containers[0].env[].value)"
+# Check VPC connector status
+gcloud compute networks vpc-access connectors describe fwlink-redis-connector --region=europe-west4
+
+# Verify Cloud Run has VPC access configured
+gcloud run services describe fwlink-prod --region=europe-west4 --format="yaml" | grep -A5 vpc
+
+# Check Redis IP in environment variables
+gcloud run services describe fwlink-prod --region=europe-west4 --format="yaml" | grep REDIS_HOST -A1
 ```
 
 **Build failures:**
