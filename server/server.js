@@ -28,6 +28,8 @@ require("./passport");
 
 // create express app
 const app = express();
+// drop scanner probes and attack headers before anything else
+app.use(require("./security"));
 
 // this tells the express app that it's running behind a proxy server
 // and thus it should get the IP address from the proxy server
