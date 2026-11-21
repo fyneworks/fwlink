@@ -52,6 +52,7 @@ steps:
           --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_APP_NAME}/${_APP_NAME}:${_IMAGE_TAG} \
           --region=${_REGION} \
           --platform=managed \
+          --service-account=${_SERVICE_NAME}@$PROJECT_ID.iam.gserviceaccount.com \
           --allow-unauthenticated \
           --port=3000 \
           --memory=512Mi \
